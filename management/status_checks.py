@@ -9,6 +9,7 @@ __ALL__ = ['check_certificate']
 import os, os.path, re, subprocess, datetime
 
 import dns.reversename, dns.resolver
+import dateutil.parser, dateutil.tz
 
 from dns_update import get_dns_zones, build_tlsa_record
 from web_update import get_web_domains, get_domain_ssl_files
@@ -37,7 +38,7 @@ def run_system_checks(env):
 		env['out'].print_ok("SSH disallows password-based login.")
 
 	# Check for any software package updates.
-	pkgs = list_apt_updates()
+	pkgs = list_apt_updates(apt_update=False)
 	if os.path.exists("/var/run/reboot-required"):
 		env['out'].print_error("System updates have been installed and a reboot of the machine is required.")
 	elif len(pkgs) == 0:
@@ -374,6 +375,7 @@ def check_certificate(domain, ssl_certificate, ssl_private_key):
 		])
 	cert_dump = cert_dump.split("\n")
 	certificate_names = set()
+	cert_expiration_date = None
 	while len(cert_dump) > 0:
 		line = cert_dump.pop(0)
 
@@ -394,6 +396,10 @@ def check_certificate(domain, ssl_certificate, ssl_private_key):
 				m = re.match("DNS:(.*)", n)
 				if m:
 					certificate_names.add(m.group(1))
+
+		m = re.match("            Not After : (.*)", line)
+		if m:
+			cert_expiration_date = dateutil.parser.parse(m.group(1))
 
 	wildcard_domain = re.sub("^[^\.]+", "*", domain)
 	if domain is not None and domain not in certificate_names and wildcard_domain not in certificate_names:
@@ -445,22 +451,34 @@ def check_certificate(domain, ssl_certificate, ssl_private_key):
 	if "self signed" in verifyoutput:
 		# Certificate is self-signed.
 		return "SELF-SIGNED"
-	elif retcode == 0:
-		# Certificate is OK.
-		return "OK"
-	else:
+	elif retcode != 0:
+		# There is some unknown problem. Return the `openssl verify` raw output.
 		return verifyoutput.strip()
+	else:
+		# `openssl verify` returned a zero exit status so the cert is currently
+		# good.
+
+		# But is it expiring soon?
+		now = datetime.datetime.now(dateutil.tz.tzlocal())
+		ndays = (cert_expiration_date-now).days
+		if ndays <= 31:
+			return "This certificate expires in %d days on %s." % (ndays, cert_expiration_date.strftime("%x"))
+
+		# Return the special OK code.
+		return "OK"
 
 _apt_updates = None
-def list_apt_updates():
+def list_apt_updates(apt_update=True):
 	# See if we have this information cached recently.
 	# Keep the information for 8 hours.
 	global _apt_updates
 	if _apt_updates is not None and _apt_updates[0] > datetime.datetime.now() - datetime.timedelta(hours=8):
 		return _apt_updates[1]
 
-	# Run apt-get update to refresh package list.
-	shell("check_call", ["/usr/bin/apt-get", "-qq", "update"])
+	# Run apt-get update to refresh package list. This should be running daily
+	# anyway, so on the status checks page don't do this because it is slow.
+	if apt_update:
+		shell("check_call", ["/usr/bin/apt-get", "-qq", "update"])
 
 	# Run apt-get upgrade in simulate mode to get a list of what
 	# it would do.

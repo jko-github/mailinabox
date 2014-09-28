@@ -104,12 +104,18 @@ def mail_users():
 @app.route('/mail/users/add', methods=['POST'])
 @authorized_personnel_only
 def mail_users_add():
-	return add_mail_user(request.form.get('email', ''), request.form.get('password', ''), request.form.get('privileges', ''), env)
+	try:
+		return add_mail_user(request.form.get('email', ''), request.form.get('password', ''), request.form.get('privileges', ''), env)
+	except ValueError as e:
+		return (str(e), 400)
 
 @app.route('/mail/users/password', methods=['POST'])
 @authorized_personnel_only
 def mail_users_password():
-	return set_mail_password(request.form.get('email', ''), request.form.get('password', ''), env)
+	try:
+		return set_mail_password(request.form.get('email', ''), request.form.get('password', ''), env)
+	except ValueError as e:
+		return (str(e), 400)
 
 @app.route('/mail/users/remove', methods=['POST'])
 @authorized_personnel_only
@@ -184,12 +190,11 @@ def dns_set_record(qname, rtype="A", value=None):
 		# Get the value from the URL, then the POST parameters, or if it is not set then
 		# use the remote IP address of the request --- makes dynamic DNS easy. To clear a
 		# value, '' must be explicitly passed.
-		print(request.environ)
 		if value is None:
 			value = request.form.get("value")
 		if value is None:
 			value = request.environ.get("HTTP_X_FORWARDED_FOR") # normally REMOTE_ADDR but we're behind nginx as a reverse proxy
-		if value == '':
+		if value == '' or value == '__delete__':
 			# request deletion
 			value = None
 		if set_custom_dns_record(qname, rtype, value, env):

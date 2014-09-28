@@ -1,20 +1,23 @@
-# Webmail: Using roundcube
-##########################
+# Webmail with Roundcube
+# ----------------------
 
 source setup/functions.sh # load our functions
 source /etc/mailinabox.conf # load global vars
 
-# Ubuntu's roundcube-core has dependencies on Apache & MySQL, which we don't want, so we can't
-# install roundcube directly via apt-get install.
+# ### Installing Roundcube
+
+# We install Roundcube from sources, rather than from Ubuntu, because:
 #
-# Additionally, the Roundcube shipped with Ubuntu is consistently out of date.
+# 1. Ubuntu's `roundcube-core` package has dependencies on Apache & MySQL, which we don't want.
 #
-# And it's packaged incorrectly --- it seems to be missing a directory of files.
+# 2. The Roundcube shipped with Ubuntu is consistently out of date.
+#
+# 3. It's packaged incorrectly --- it seems to be missing a directory of files.
 #
 # So we'll use apt-get to manually install the dependencies of roundcube that we know we need,
 # and then we'll manually install roundcube from source.
 
-# These dependencies are from 'apt-cache showpkg roundcube-core'.
+# These dependencies are from `apt-cache showpkg roundcube-core`.
 apt_install \
 	dbconfig-common \
 	php5 php5-sqlite php5-mcrypt php5-intl php5-json php5-common php-auth php-net-smtp php-net-socket php-net-sieve php-mail-mime php-crypt-gpg php5-gd php5-pspell \
@@ -25,15 +28,27 @@ apt_install \
 # Now that we're beyond that, get rid of those debs before installing from source.
 apt-get purge -qq -y roundcube*
 
-# Install Roundcube from source if it is not already present.
-# TODO: Check version?
-if [ ! -d /usr/local/lib/roundcubemail ]; then
-	rm -f /tmp/roundcube.tgz
-	wget -qO /tmp/roundcube.tgz http://downloads.sourceforge.net/project/roundcubemail/roundcubemail/1.0.2/roundcubemail-1.0.2.tar.gz
-	tar -C /usr/local/lib -zxf /tmp/roundcube.tgz
-	mv /usr/local/lib/roundcubemail-1.0.2/ /usr/local/lib/roundcubemail
-	rm -f /tmp/roundcube.tgz
+# Install Roundcube from source if it is not already present or if it is out of date.
+VERSION=1.0.2
+needs_update=0 #NODOC
+if [ ! -f /usr/local/lib/roundcubemail/version ]; then
+	# not installed yet
+	needs_update=1 #NODOC
+elif [[ $VERSION != `cat /usr/local/lib/roundcubemail/version` ]]; then
+	# checks if the version is what we want
+	needs_update=1 #NODOC
 fi
+if [ $needs_update == 1 ]; then
+	echo installing roudcube webmail $VERSION...
+	rm -f /tmp/roundcube.tgz
+	wget -qO /tmp/roundcube.tgz http://downloads.sourceforge.net/project/roundcubemail/roundcubemail/$VERSION/roundcubemail-$VERSION.tar.gz
+	tar -C /usr/local/lib -zxf /tmp/roundcube.tgz
+	mv /usr/local/lib/roundcubemail-$VERSION/ /usr/local/lib/roundcubemail
+	rm -f /tmp/roundcube.tgz
+	echo $VERSION > /usr/local/lib/roundcubemail/version
+fi
+
+# ### Configuring Roundcube
 
 # Generate a safe 24-character secret key of safe characters.
 SECRET_KEY=$(dd if=/dev/random bs=1 count=18 2>/dev/null | base64 | fold -w 24 | head -n 1)
@@ -43,7 +58,7 @@ SECRET_KEY=$(dd if=/dev/random bs=1 count=18 2>/dev/null | base64 | fold -w 24 |
 # For security, temp and log files are not stored in the default locations
 # which are inside the roundcube sources directory. We put them instead
 # in normal places.
-cat - > /usr/local/lib/roundcubemail/config/config.inc.php <<EOF;
+cat > /usr/local/lib/roundcubemail/config/config.inc.php <<EOF;
 <?php
 /*
  * Do not edit. Written by Mail-in-a-Box. Regenerated on updates.
